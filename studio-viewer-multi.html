@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Studio Viewer</title>
+
+<!--
+  ╔══════════════════════════════════════════════════════════════════════╗
+  ║  PRELOAD CONFIG                                                      ║
+  ║                                                                      ║
+  ║  Add as many models as you like to the MODELS array.                ║
+  ║  Each entry needs a src (path or URL) and a name (label).           ║
+  ║  The first model in the list loads automatically.                   ║
+  ║                                                                      ║
+  ║  Leave the array empty [] to start with an empty drop zone.         ║
+  ╚══════════════════════════════════════════════════════════════════════╝
+-->
+<script>
+const MODELS = [
+  // { src: "models/concept-a.glb", name: "Concept A" },
+  // { src: "models/concept-b.glb", name: "Concept B" },
+  // { src: "https://modelviewer.dev/shared-assets/models/Astronaut.glb", name: "Astronaut" },
+];
+</script>
+
+<script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+<style>
+/* ── TOKENS ── */
+:root {
+  --studio-bg: #f5f5f3;
+  --ui-bg: rgba(255,255,255,0.88);
+  --ui-border: rgba(0,0,0,0.08);
+  --ui-text: #1a1a1a;
+  --ui-muted: #888;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--studio-bg);
+  font-family: 'SF Pro Display', -apple-system, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── VIEWER ── */
+#viewer-wrap {
+  position: fixed;
+  inset: 0;
+  transition: background 0.6s var(--ease);
+}
+
+model-viewer {
+  width: 100%; height: 100%;
+  background: transparent;
+  --progress-bar-color: rgba(0,0,0,0.15);
+  --progress-bar-height: 1px;
+  --poster-color: transparent;
+}
+model-viewer::part(default-progress-bar) {
+  background: rgba(0,0,0,0.2);
+  height: 1px;
+}
+
+#studio-floor {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 38%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(to top, rgba(0,0,0,0.04) 0%, transparent 100%);
+}
+
+/* ── DROP OVERLAY ── */
+#drop-overlay {
+  position: fixed; inset: 0;
+  z-index: 100;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+  background: transparent;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+#drop-overlay.active {
+  opacity: 1;
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(4px);
+  pointer-events: all;
+}
+#drop-ring {
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+}
+#drop-ring svg { opacity: 0.4; }
+#drop-ring span {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(0,0,0,0.4); font-weight: 500;
+}
+
+/* ── EMPTY STATE ── */
+#empty-state {
+  position: fixed; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 20px;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+#empty-state.hidden { opacity: 0; pointer-events: none; }
+.empty-icon {
+  width: 72px; height: 72px;
+  border: 1.5px solid rgba(0,0,0,0.12); border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.empty-icon svg { opacity: 0.25; }
+.empty-title { font-size: 15px; font-weight: 500; color: rgba(0,0,0,0.35); text-align: center; }
+.empty-sub {
+  font-size: 11px; color: rgba(0,0,0,0.22); letter-spacing: 0.04em;
+  text-transform: uppercase; font-weight: 500; text-align: center; line-height: 1.8;
+}
+.empty-btn {
+  pointer-events: all; margin-top: 4px; padding: 9px 20px;
+  background: rgba(0,0,0,0.07); border: none; border-radius: 8px;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
+  color: rgba(0,0,0,0.5); cursor: pointer; transition: background 0.2s, color 0.2s;
+}
+.empty-btn:hover { background: rgba(0,0,0,0.11); color: rgba(0,0,0,0.75); }
+
+/* ── MODEL SWITCHER TRAY ── */
+#switcher-tray {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  padding: 5px 6px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 2px 20px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
+  transition: opacity 0.4s, transform 0.4s var(--ease);
+  max-width: calc(100vw - 48px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+#switcher-tray.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+  pointer-events: none;
+}
+
+.model-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--ui-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s, color 0.15s;
+  position: relative;
+  flex-shrink: 0;
+}
+.model-tab:hover { background: rgba(0,0,0,0.05); color: var(--ui-text); }
+.model-tab.active {
+  background: rgba(0,0,0,0.08);
+  color: var(--ui-text);
+}
+.model-tab .tab-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.2);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.model-tab.active .tab-dot { background: var(--ui-text); }
+
+/* Remove button on tab */
+.tab-remove {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(0,0,0,0.25);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 2px;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.tab-remove:hover { background: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6); }
+
+.tray-divider {
+  width: 1px; height: 18px;
+  background: var(--ui-border);
+  flex-shrink: 0;
+  margin: 0 1px;
+}
+
+/* Add model button in tray */
+#tray-add {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  border: 1px dashed rgba(0,0,0,0.18);
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+#tray-add:hover { border-color: rgba(0,0,0,0.35); color: var(--ui-text); background: rgba(0,0,0,0.03); }
+
+/* ── CONTROL PANEL ── */
+#panel {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: 14px;
+  padding: 8px 10px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 2px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.05);
+  transition: opacity 0.4s, transform 0.4s var(--ease);
+}
+#panel.hidden { opacity: 0; transform: translateX(-50%) translateY(12px); pointer-events: none; }
+
+.panel-divider { width: 1px; height: 22px; background: var(--ui-border); margin: 0 2px; flex-shrink: 0; }
+.panel-label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--ui-muted); padding: 0 4px; flex-shrink: 0;
+}
+
+.swatch-row { display: flex; align-items: center; gap: 5px; }
+
+.swatch {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid transparent; cursor: pointer; flex-shrink: 0;
+  transition: transform 0.15s, border-color 0.15s; position: relative;
+}
+.swatch:hover { transform: scale(1.15); }
+.swatch.active { border-color: rgba(0,0,0,0.35); transform: scale(1.1); }
+.swatch.active::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+
+.swatch-custom {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px dashed rgba(0,0,0,0.2); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; flex-shrink: 0; transition: border-color 0.15s;
+}
+.swatch-custom:hover { border-color: rgba(0,0,0,0.4); }
+.swatch-custom input[type="color"] { opacity: 0; position: absolute; width: 22px; height: 22px; cursor: pointer; }
+.swatch-custom svg { pointer-events: none; }
+
+.icon-btn {
+  width: 32px; height: 32px; border: none; border-radius: 8px;
+  background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ui-muted); transition: background 0.15s, color 0.15s; flex-shrink: 0;
+}
+.icon-btn:hover { background: rgba(0,0,0,0.05); color: var(--ui-text); }
+.icon-btn.active { background: rgba(0,0,0,0.07); color: var(--ui-text); }
+
+/* ── MODEL NAME BADGE ── */
+#model-badge {
+  position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 20;
+  background: var(--ui-bg); border: 1px solid var(--ui-border); border-radius: 20px;
+  padding: 5px 14px; font-size: 11px; font-weight: 500; letter-spacing: 0.05em;
+  color: var(--ui-muted); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  transition: opacity 0.4s; white-space: nowrap; max-width: 300px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+#model-badge.hidden { opacity: 0; }
+
+/* ── DRAG HINT ── */
+#drag-hint {
+  position: fixed; bottom: 140px; left: 50%; transform: translateX(-50%);
+  z-index: 10; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase;
+  font-weight: 500; color: rgba(0,0,0,0.2);
+  display: flex; align-items: center; gap: 8px; pointer-events: none; transition: opacity 0.8s;
+}
+#drag-hint.hidden { opacity: 0; }
+.hint-line { width: 24px; height: 1px; background: rgba(0,0,0,0.15); }
+
+.rotate-icon { animation: spinSlow 8s linear infinite; }
+@keyframes spinSlow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+#file-input { display: none; }
+#file-input-tray { display: none; }
+</style>
+</head>
+<body>
+
+<div id="viewer-wrap">
+  <model-viewer
+    id="mv"
+    alt="3D model"
+    camera-controls
+    auto-rotate
+    auto-rotate-delay="1000"
+    rotation-per-second="4deg"
+    shadow-intensity="1.4"
+    shadow-softness="0.85"
+    exposure="1.1"
+    tone-mapping="commerce"
+    skybox-image="https://modelviewer.dev/shared-assets/environments/neutral.hdr"
+    interaction-prompt="none"
+    loading="eager"
+    ar ar-modes="webxr scene-viewer quick-look"
+  ></model-viewer>
+</div>
+
+<div id="studio-floor"></div>
+
+<!-- Empty state -->
+<div id="empty-state">
+  <div class="empty-icon">
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <path d="M6 22L16 8l10 14H6z" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>
+      <circle cx="22" cy="10" r="3" stroke="#1a1a1a" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <div class="empty-title">No model loaded</div>
+  <div class="empty-sub">Drop one or more .glb files anywhere<br>or click to browse</div>
+  <button class="empty-btn" id="browse-btn">Browse files</button>
+</div>
+
+<!-- Drop overlay -->
+<div id="drop-overlay">
+  <div id="drop-ring">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <path d="M14 6v12M9 11l5-5 5 5" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M5 20h18" stroke="#1a1a1a" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span>Drop to add</span>
+  </div>
+</div>
+
+<!-- Top badge -->
+<div id="model-badge" class="hidden">—</div>
+
+<!-- Drag hint -->
+<div id="drag-hint" class="hidden">
+  <div class="hint-line"></div>
+  <svg class="rotate-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M2 7a5 5 0 1 0 5-5" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M7 2L5 4l2 2" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  Drag to rotate
+  <div class="hint-line"></div>
+</div>
+
+<!-- Model switcher tray (shown when 2+ models) -->
+<div id="switcher-tray" class="hidden"></div>
+
+<!-- Control panel -->
+<div id="panel" class="hidden">
+
+  <button class="icon-btn" id="open-btn" title="Add model">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 2H13A1.5 1.5 0 0 1 14 6.5V12A1.5 1.5 0 0 1 12.5 13.5h-9A1.5 1.5 0 0 1 2 12V4.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div class="panel-divider"></div>
+
+  <span class="panel-label">Studio</span>
+  <div class="swatch-row" id="studio-swatches">
+    <div class="swatch active" data-color="#f5f5f3" style="background:#f5f5f3;" title="Warm white"></div>
+    <div class="swatch" data-color="#ffffff" style="background:#ffffff;" title="Pure white"></div>
+    <div class="swatch" data-color="#e8e4e0" style="background:#e8e4e0;" title="Stone"></div>
+    <div class="swatch" data-color="#1a1a1a" style="background:#1a1a1a;" title="Midnight"></div>
+    <div class="swatch" data-color="#0d1b2a" style="background:#0d1b2a;" title="Deep navy"></div>
+    <div class="swatch-custom" title="Custom colour">
+      <input type="color" id="studio-color-custom" value="#f5f5f3">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="panel-divider"></div>
+
+  <span class="panel-label">Model</span>
+  <div class="swatch-row" id="model-swatches">
+    <div class="swatch active" data-model-color="original" style="background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);" title="Original materials"></div>
+    <div class="swatch" data-model-color="#e8e8e8" style="background:#e8e8e8;" title="Matte white"></div>
+    <div class="swatch" data-model-color="#c0c0c0" style="background: linear-gradient(135deg,#d8d8d8,#a0a0a0);" title="Brushed silver"></div>
+    <div class="swatch" data-model-color="#1a1a1a" style="background:#1a1a1a;" title="Matte black"></div>
+    <div class="swatch" data-model-color="#1a3a5c" style="background:#1a3a5c;" title="Navy"></div>
+    <div class="swatch" data-model-color="#8B2020" style="background:#8B2020;" title="Carmine"></div>
+    <div class="swatch" data-model-color="#2d5a3d" style="background:#2d5a3d;" title="Forest"></div>
+    <div class="swatch-custom" title="Custom model colour">
+      <input type="color" id="model-color-custom" value="#e8e8e8">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="panel-divider"></div>
+
+  <span class="panel-label">Light</span>
+  <div class="swatch-row">
+    <button class="icon-btn active" id="light-studio" title="Studio">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <circle cx="7.5" cy="7.5" r="3" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.2 3.2l1 1M10.8 10.8l1 1M10.8 3.2l-1 1M3.2 10.8l1-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="light-dramatic" title="Dramatic">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M7.5 1L9.5 6H14L10.5 8.5 12 13 7.5 10 3 13l1.5-4.5L1 6h4.5L7.5 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="light-outdoor" title="Outdoor">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+        <path d="M2 10c0-3 2.5-5.5 5.5-5.5S13 7 13 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M1 10h13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M7.5 1v1.5M3.5 2.5l1 1M11.5 2.5l-1 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel-divider"></div>
+
+  <button class="icon-btn active" id="rotate-btn" title="Toggle rotation">
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <path d="M2 7.5a5.5 5.5 0 1 0 5.5-5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M7.5 2L5.5 4l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <button class="icon-btn" id="reset-btn" title="Reset camera">
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <rect x="2" y="2" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M5 7.5h5M7.5 5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>
+  </button>
+
+</div>
+
+<input type="file" id="file-input" accept=".glb,.gltf" multiple>
+<input type="file" id="file-input-tray" accept=".glb,.gltf" multiple>
+
+<script>
+'use strict';
+
+const mv          = document.getElementById('mv');
+const panel       = document.getElementById('panel');
+const emptyState  = document.getElementById('empty-state');
+const dropOverlay = document.getElementById('drop-overlay');
+const badge       = document.getElementById('model-badge');
+const dragHint    = document.getElementById('drag-hint');
+const fileInput   = document.getElementById('file-input');
+const fileInputTray = document.getElementById('file-input-tray');
+const viewerWrap  = document.getElementById('viewer-wrap');
+const studioFloor = document.getElementById('studio-floor');
+const tray        = document.getElementById('switcher-tray');
+
+// ── Model registry
+// Each entry: { src, name, isObjectUrl, color }
+let modelList    = [];   // all loaded models
+let activeIndex  = -1;  // currently shown
+
+let autoRotating    = true;
+let currentModelColor = 'original';
+let hintDone        = false;
+
+const HDRIS = {
+  studio:   'https://modelviewer.dev/shared-assets/environments/neutral.hdr',
+  dramatic: 'https://modelviewer.dev/shared-assets/environments/spruit_sunrise_1k_HDR.hdr',
+  outdoor:  'https://modelviewer.dev/shared-assets/environments/aircraft_workshop_01_1k.hdr',
+};
+
+// ── Colour helpers
+function isColorDark(hex) {
+  const c = hex.replace('#','');
+  const r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+  return (r*299 + g*587 + b*114) / 1000 < 128;
+}
+function hexToRgb01(hex) {
+  const c = hex.replace('#','');
+  return [parseInt(c.substr(0,2),16)/255, parseInt(c.substr(2,2),16)/255, parseInt(c.substr(4,2),16)/255, 1.0];
+}
+
+// ── Studio background
+function setStudioColor(hex) {
+  viewerWrap.style.background = hex;
+  document.body.style.background = hex;
+  const isDark = isColorDark(hex);
+  studioFloor.style.background = isDark
+    ? 'linear-gradient(to top, rgba(255,255,255,0.04) 0%, transparent 100%)'
+    : 'linear-gradient(to top, rgba(0,0,0,0.04) 0%, transparent 100%)';
+  document.documentElement.style.setProperty('--ui-bg',     isDark ? 'rgba(28,28,28,0.90)' : 'rgba(255,255,255,0.88)');
+  document.documentElement.style.setProperty('--ui-border', isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)');
+  document.documentElement.style.setProperty('--ui-text',   isDark ? '#e8e8e8' : '#1a1a1a');
+  document.documentElement.style.setProperty('--ui-muted',  isDark ? '#888' : '#999');
+}
+
+// ── Apply model colour
+async function applyModelColor(colorOrOriginal) {
+  currentModelColor = colorOrOriginal;
+  // Persist on current entry
+  if (activeIndex >= 0) modelList[activeIndex].color = colorOrOriginal;
+
+  await mv.updateComplete;
+  const model = mv.model;
+  if (!model?.materials?.length) return;
+
+  if (colorOrOriginal === 'original') {
+    // Re-set src to reload original materials
+    const src = mv.src;
+    mv.src = '';
+    await new Promise(r => setTimeout(r, 40));
+    mv.src = src;
+    return;
+  }
+
+  const rgba = hexToRgb01(colorOrOriginal);
+  const isMetal = colorOrOriginal === '#c0c0c0';
+  model.materials.forEach(mat => {
+    const pbr = mat.pbrMetallicRoughness;
+    if (!pbr) return;
+    pbr.setBaseColorFactor(rgba);
+    pbr.setMetallicFactor(isMetal ? 0.85 : 0.0);
+    pbr.setRoughnessFactor(isMetal ? 0.2 : colorOrOriginal === '#1a1a1a' ? 0.65 : 0.45);
+  });
+}
+
+// ── Switch to model at index
+function switchTo(index) {
+  if (index < 0 || index >= modelList.length) return;
+  activeIndex = index;
+  const entry = modelList[index];
+
+  mv.src = entry.src;
+  badge.textContent = entry.name;
+  badge.classList.remove('hidden');
+
+  // Restore this model's colour swatch state
+  const col = entry.color || 'original';
+  currentModelColor = col;
+  document.querySelectorAll('#model-swatches .swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.modelColor === col);
+  });
+  // If custom colour, clear all preset swatches
+  const knownColors = ['original','#e8e8e8','#c0c0c0','#1a1a1a','#1a3a5c','#8B2020','#2d5a3d'];
+  if (!knownColors.includes(col)) {
+    document.querySelectorAll('#model-swatches .swatch').forEach(s => s.classList.remove('active'));
+  }
+
+  renderTray();
+}
+
+// ── Add model(s) to list
+function addModel(src, name, isObjectUrl = false) {
+  // Avoid exact duplicate srcs (same URL preloaded twice etc.)
+  const isDupe = modelList.some(m => m.src === src);
+  if (isDupe) return;
+
+  modelList.push({ src, name, isObjectUrl, color: 'original' });
+  const newIndex = modelList.length - 1;
+  switchTo(newIndex);
+
+  panel.classList.remove('hidden');
+  emptyState.classList.add('hidden');
+
+  // Drag hint
+  if (!hintDone) {
+    dragHint.classList.remove('hidden');
+    setTimeout(() => { if (!hintDone) { hintDone = true; dragHint.classList.add('hidden'); } }, 4000);
+  }
+}
+
+// ── Remove model from list
+function removeModel(index) {
+  const entry = modelList[index];
+  if (entry.isObjectUrl) URL.revokeObjectURL(entry.src);
+  modelList.splice(index, 1);
+
+  if (modelList.length === 0) {
+    activeIndex = -1;
+    mv.src = '';
+    badge.classList.add('hidden');
+    panel.classList.add('hidden');
+    tray.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    return;
+  }
+
+  const nextIndex = Math.min(index, modelList.length - 1);
+  switchTo(nextIndex);
+}
+
+// ── Render switcher tray
+function renderTray() {
+  tray.innerHTML = '';
+
+  if (modelList.length < 2) {
+    tray.classList.add('hidden');
+    return;
+  }
+
+  tray.classList.remove('hidden');
+
+  modelList.forEach((entry, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'model-tab' + (i === activeIndex ? ' active' : '');
+    btn.title = entry.name;
+
+    const dot = document.createElement('span');
+    dot.className = 'tab-dot';
+
+    const label = document.createElement('span');
+    label.textContent = entry.name;
+    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;max-width:120px;display:block;';
+
+    const rm = document.createElement('button');
+    rm.className = 'tab-remove';
+    rm.title = 'Remove';
+    rm.innerHTML = '×';
+    rm.addEventListener('click', e => { e.stopPropagation(); removeModel(i); });
+
+    btn.appendChild(dot);
+    btn.appendChild(label);
+    btn.appendChild(rm);
+    btn.addEventListener('click', () => switchTo(i));
+    tray.appendChild(btn);
+
+    if (i < modelList.length - 1) {
+      const div = document.createElement('div');
+      div.className = 'tray-divider';
+      tray.appendChild(div);
+    }
+  });
+
+  // Add button at end
+  const addDiv = document.createElement('div');
+  addDiv.className = 'tray-divider';
+  tray.appendChild(addDiv);
+
+  const addBtn = document.createElement('button');
+  addBtn.id = 'tray-add';
+  addBtn.title = 'Add model';
+  addBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+  addBtn.addEventListener('click', () => fileInputTray.click());
+  tray.appendChild(addBtn);
+}
+
+// ── Load from File object
+function loadFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['glb','gltf'].includes(ext)) return;
+  const url = URL.createObjectURL(file);
+  const name = file.name.replace(/\.(glb|gltf)$/i, '');
+  addModel(url, name, true);
+}
+
+// ── File inputs
+fileInput.addEventListener('change', e => {
+  Array.from(e.target.files).forEach(loadFile);
+  fileInput.value = '';
+});
+fileInputTray.addEventListener('change', e => {
+  Array.from(e.target.files).forEach(loadFile);
+  fileInputTray.value = '';
+});
+document.getElementById('browse-btn').addEventListener('click', () => fileInput.click());
+document.getElementById('open-btn').addEventListener('click', () => fileInputTray.click());
+
+// ── Drag & drop (supports multiple files)
+let dragCount = 0;
+document.addEventListener('dragenter', e => { e.preventDefault(); dragCount++; dropOverlay.classList.add('active'); });
+document.addEventListener('dragleave', () => { dragCount--; if (dragCount <= 0) { dragCount = 0; dropOverlay.classList.remove('active'); } });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dragCount = 0;
+  dropOverlay.classList.remove('active');
+  Array.from(e.dataTransfer.files).forEach(loadFile);
+});
+
+// ── Studio swatches
+document.querySelectorAll('#studio-swatches .swatch').forEach(s => {
+  s.addEventListener('click', () => {
+    document.querySelectorAll('#studio-swatches .swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    setStudioColor(s.dataset.color);
+    document.getElementById('studio-color-custom').value = s.dataset.color;
+  });
+});
+document.getElementById('studio-color-custom').addEventListener('input', e => {
+  document.querySelectorAll('#studio-swatches .swatch').forEach(x => x.classList.remove('active'));
+  setStudioColor(e.target.value);
+});
+
+// ── Model colour swatches
+document.querySelectorAll('#model-swatches .swatch').forEach(s => {
+  s.addEventListener('click', () => {
+    document.querySelectorAll('#model-swatches .swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    applyModelColor(s.dataset.modelColor);
+  });
+});
+document.getElementById('model-color-custom').addEventListener('input', e => {
+  document.querySelectorAll('#model-swatches .swatch').forEach(x => x.classList.remove('active'));
+  applyModelColor(e.target.value);
+});
+
+// ── Lighting
+const LIGHT_IDS = { studio: 'light-studio', dramatic: 'light-dramatic', outdoor: 'light-outdoor' };
+Object.entries(LIGHT_IDS).forEach(([env, id]) => {
+  document.getElementById(id).addEventListener('click', () => {
+    Object.values(LIGHT_IDS).forEach(bid => document.getElementById(bid).classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    mv.setAttribute('skybox-image', HDRIS[env]);
+    mv.setAttribute('exposure',        env === 'dramatic' ? '0.85' : env === 'outdoor' ? '1.3' : '1.1');
+    mv.setAttribute('shadow-intensity', env === 'dramatic' ? '2.0'  : env === 'outdoor' ? '1.2' : '1.4');
+  });
+});
+
+// ── Rotate toggle
+const rotateBtn = document.getElementById('rotate-btn');
+rotateBtn.addEventListener('click', () => {
+  autoRotating = !autoRotating;
+  autoRotating ? mv.setAttribute('auto-rotate','') : mv.removeAttribute('auto-rotate');
+  rotateBtn.classList.toggle('active', autoRotating);
+});
+
+// ── Reset camera
+document.getElementById('reset-btn').addEventListener('click', () => {
+  mv.cameraOrbit = 'auto auto auto';
+  mv.fieldOfView = 'auto';
+  mv.jumpCameraToGoal();
+});
+
+// ── Pause/resume on drag
+function pauseRot()  { if (autoRotating) mv.removeAttribute('auto-rotate'); }
+function resumeRot() { if (autoRotating) setTimeout(() => mv.setAttribute('auto-rotate',''), 800); }
+mv.addEventListener('mousedown',  pauseRot);
+mv.addEventListener('mouseup',    resumeRot);
+mv.addEventListener('mouseleave', resumeRot);
+mv.addEventListener('touchstart', pauseRot, { passive: true });
+mv.addEventListener('touchend',   resumeRot);
+
+// ── Dismiss drag hint on camera move
+mv.addEventListener('camera-change', () => {
+  if (!hintDone && activeIndex >= 0) { hintDone = true; dragHint.classList.add('hidden'); }
+});
+
+// ── On model load
+mv.addEventListener('load', async () => {
+  await mv.updateComplete;
+  mv.jumpCameraToGoal();
+  // Re-apply colour override after src swap
+  if (currentModelColor !== 'original') applyModelColor(currentModelColor);
+});
+
+// ── Init
+setStudioColor('#f5f5f3');
+
+// ── Preload from config
+if (typeof MODELS !== 'undefined' && MODELS.length > 0) {
+  MODELS.forEach(m => addModel(m.src, m.name || m.src.split('/').pop().replace(/\.(glb|gltf)$/i,'')));
+}
+</script>
+</body>
+</html>
