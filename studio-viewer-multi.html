@@ -18,8 +18,8 @@
 -->
 <script>
 const MODELS = [
- { src: "https://kieranjgreen18-cyber.github.io/ModelViewer/assignmentpreload/glbs/Granite.glb", name: "Lego Head Crockpot" },
-  { src: "https://kieranjgreen18-cyber.github.io/ModelViewer/assignmentpreload/glbs/legobrick.glb", name: "Lego Brick Crockpot" },
+  // { src: "https://kieranjgreen18-cyber.github.io/ModelViewer/assignmentpreload/glbs/Granite.glb", name: "Lego Head Crockpot" },
+  // { src: "models/concept-b.glb", name: "Concept B" },
   // { src: "https://modelviewer.dev/shared-assets/models/Astronaut.glb", name: "Astronaut" },
 ];
 </script>
@@ -132,7 +132,7 @@ model-viewer::part(default-progress-bar) {
 /* ── MODEL SWITCHER TRAY ── */
 #switcher-tray {
   position: fixed;
-  bottom: 80px;
+  bottom: 122px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 21;
@@ -239,18 +239,33 @@ model-viewer::part(default-progress-bar) {
   transform: translateX(-50%);
   z-index: 20;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   background: var(--ui-bg);
   border: 1px solid var(--ui-border);
   border-radius: 14px;
-  padding: 8px 10px;
+  padding: 0;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: 0 2px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.05);
   transition: opacity 0.4s, transform 0.4s var(--ease);
+  max-width: calc(100vw - 24px);
 }
 #panel.hidden { opacity: 0; transform: translateX(-50%) translateY(12px); pointer-events: none; }
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+.panel-row + .panel-row {
+  border-top: 1px solid var(--ui-border);
+}
 
 .panel-divider { width: 1px; height: 22px; background: var(--ui-border); margin: 0 2px; flex-shrink: 0; }
 .panel-label {
@@ -305,7 +320,7 @@ model-viewer::part(default-progress-bar) {
 
 /* ── DRAG HINT ── */
 #drag-hint {
-  position: fixed; bottom: 140px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%);
   z-index: 10; font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase;
   font-weight: 500; color: rgba(0,0,0,0.2);
   display: flex; align-items: center; gap: 8px; pointer-events: none; transition: opacity 0.8s;
@@ -318,6 +333,39 @@ model-viewer::part(default-progress-bar) {
 
 #file-input { display: none; }
 #file-input-tray { display: none; }
+
+/* ── MOBILE ── */
+@media (max-width: 600px) {
+  /* Shrink swatches slightly */
+  .swatch, .swatch-custom { width: 20px; height: 20px; }
+  .swatch-custom input[type="color"] { width: 20px; height: 20px; }
+
+  /* Tighter gaps */
+  .panel-row { gap: 4px; padding: 7px 8px; }
+  .swatch-row { gap: 4px; }
+  .panel-label { font-size: 8px; padding: 0 2px; }
+  .panel-divider { margin: 0 1px; }
+
+  /* Badge smaller */
+  #model-badge { font-size: 10px; padding: 4px 10px; max-width: calc(100vw - 48px); }
+
+  /* Switcher tray: smaller tabs */
+  .model-tab { font-size: 10px; padding: 4px 8px; max-width: 120px; }
+
+  /* Push panel up a bit more to clear home bar on iOS */
+  #panel { bottom: 20px; }
+  #switcher-tray { bottom: 76px; }
+
+  /* Drag hint: hide on mobile (touch users figure it out) */
+  #drag-hint { display: none; }
+}
+
+@media (max-width: 400px) {
+  .swatch, .swatch-custom { width: 18px; height: 18px; }
+  .swatch-custom input[type="color"] { width: 18px; height: 18px; }
+  .panel-row { gap: 3px; padding: 6px 6px; }
+  .icon-btn { width: 28px; height: 28px; }
+}
 </style>
 </head>
 <body>
@@ -387,87 +435,91 @@ model-viewer::part(default-progress-bar) {
 <!-- Control panel -->
 <div id="panel" class="hidden">
 
-  <button class="icon-btn" id="open-btn" title="Add model">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 2H13A1.5 1.5 0 0 1 14 6.5V12A1.5 1.5 0 0 1 12.5 13.5h-9A1.5 1.5 0 0 1 2 12V4.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-    </svg>
-  </button>
-
-  <div class="panel-divider"></div>
-
-  <span class="panel-label">Studio</span>
-  <div class="swatch-row" id="studio-swatches">
-    <div class="swatch active" data-color="#f5f5f3" style="background:#f5f5f3;" title="Warm white"></div>
-    <div class="swatch" data-color="#ffffff" style="background:#ffffff;" title="Pure white"></div>
-    <div class="swatch" data-color="#e8e4e0" style="background:#e8e4e0;" title="Stone"></div>
-    <div class="swatch" data-color="#1a1a1a" style="background:#1a1a1a;" title="Midnight"></div>
-    <div class="swatch" data-color="#0d1b2a" style="background:#0d1b2a;" title="Deep navy"></div>
-    <div class="swatch-custom" title="Custom colour">
-      <input type="color" id="studio-color-custom" value="#f5f5f3">
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Row 1: file open | studio colours | model colours -->
+  <div class="panel-row">
+    <button class="icon-btn" id="open-btn" title="Add model">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 2H13A1.5 1.5 0 0 1 14 6.5V12A1.5 1.5 0 0 1 12.5 13.5h-9A1.5 1.5 0 0 1 2 12V4.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
       </svg>
+    </button>
+
+    <div class="panel-divider"></div>
+
+    <span class="panel-label">Studio</span>
+    <div class="swatch-row" id="studio-swatches">
+      <div class="swatch active" data-color="#f5f5f3" style="background:#f5f5f3;" title="Warm white"></div>
+      <div class="swatch" data-color="#ffffff" style="background:#ffffff;" title="Pure white"></div>
+      <div class="swatch" data-color="#e8e4e0" style="background:#e8e4e0;" title="Stone"></div>
+      <div class="swatch" data-color="#1a1a1a" style="background:#1a1a1a;" title="Midnight"></div>
+      <div class="swatch" data-color="#0d1b2a" style="background:#0d1b2a;" title="Deep navy"></div>
+      <div class="swatch-custom" title="Custom colour">
+        <input type="color" id="studio-color-custom" value="#f5f5f3">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="panel-divider"></div>
+
+    <span class="panel-label">Model</span>
+    <div class="swatch-row" id="model-swatches">
+      <div class="swatch active" data-model-color="original" style="background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);" title="Original materials"></div>
+      <div class="swatch" data-model-color="#e8e8e8" style="background:#e8e8e8;" title="Matte white"></div>
+      <div class="swatch" data-model-color="#c0c0c0" style="background: linear-gradient(135deg,#d8d8d8,#a0a0a0);" title="Brushed silver"></div>
+      <div class="swatch" data-model-color="#1a1a1a" style="background:#1a1a1a;" title="Matte black"></div>
+      <div class="swatch" data-model-color="#1a3a5c" style="background:#1a3a5c;" title="Navy"></div>
+      <div class="swatch" data-model-color="#8B2020" style="background:#8B2020;" title="Carmine"></div>
+      <div class="swatch" data-model-color="#2d5a3d" style="background:#2d5a3d;" title="Forest"></div>
+      <div class="swatch-custom" title="Custom model colour">
+        <input type="color" id="model-color-custom" value="#e8e8e8">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
     </div>
   </div>
 
-  <div class="panel-divider"></div>
-
-  <span class="panel-label">Model</span>
-  <div class="swatch-row" id="model-swatches">
-    <div class="swatch active" data-model-color="original" style="background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);" title="Original materials"></div>
-    <div class="swatch" data-model-color="#e8e8e8" style="background:#e8e8e8;" title="Matte white"></div>
-    <div class="swatch" data-model-color="#c0c0c0" style="background: linear-gradient(135deg,#d8d8d8,#a0a0a0);" title="Brushed silver"></div>
-    <div class="swatch" data-model-color="#1a1a1a" style="background:#1a1a1a;" title="Matte black"></div>
-    <div class="swatch" data-model-color="#1a3a5c" style="background:#1a3a5c;" title="Navy"></div>
-    <div class="swatch" data-model-color="#8B2020" style="background:#8B2020;" title="Carmine"></div>
-    <div class="swatch" data-model-color="#2d5a3d" style="background:#2d5a3d;" title="Forest"></div>
-    <div class="swatch-custom" title="Custom model colour">
-      <input type="color" id="model-color-custom" value="#e8e8e8">
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
-      </svg>
+  <!-- Row 2: lighting | rotate | reset -->
+  <div class="panel-row">
+    <span class="panel-label">Light</span>
+    <div class="swatch-row">
+      <button class="icon-btn active" id="light-studio" title="Studio">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <circle cx="7.5" cy="7.5" r="3" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.2 3.2l1 1M10.8 10.8l1 1M10.8 3.2l-1 1M3.2 10.8l1-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="light-dramatic" title="Dramatic">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <path d="M7.5 1L9.5 6H14L10.5 8.5 12 13 7.5 10 3 13l1.5-4.5L1 6h4.5L7.5 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="light-outdoor" title="Outdoor">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <path d="M2 10c0-3 2.5-5.5 5.5-5.5S13 7 13 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <path d="M1 10h13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <path d="M7.5 1v1.5M3.5 2.5l1 1M11.5 2.5l-1 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
-  </div>
 
-  <div class="panel-divider"></div>
+    <div class="panel-divider"></div>
 
-  <span class="panel-label">Light</span>
-  <div class="swatch-row">
-    <button class="icon-btn active" id="light-studio" title="Studio">
+    <button class="icon-btn active" id="rotate-btn" title="Toggle rotation">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-        <circle cx="7.5" cy="7.5" r="3" stroke="currentColor" stroke-width="1.2"/>
-        <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.2 3.2l1 1M10.8 10.8l1 1M10.8 3.2l-1 1M3.2 10.8l1-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M2 7.5a5.5 5.5 0 1 0 5.5-5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M7.5 2L5.5 4l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
-    <button class="icon-btn" id="light-dramatic" title="Dramatic">
+
+    <button class="icon-btn" id="reset-btn" title="Reset camera">
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-        <path d="M7.5 1L9.5 6H14L10.5 8.5 12 13 7.5 10 3 13l1.5-4.5L1 6h4.5L7.5 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-      </svg>
-    </button>
-    <button class="icon-btn" id="light-outdoor" title="Outdoor">
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-        <path d="M2 10c0-3 2.5-5.5 5.5-5.5S13 7 13 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        <path d="M1 10h13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-        <path d="M7.5 1v1.5M3.5 2.5l1 1M11.5 2.5l-1 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <rect x="2" y="2" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M5 7.5h5M7.5 5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
     </button>
   </div>
-
-  <div class="panel-divider"></div>
-
-  <button class="icon-btn active" id="rotate-btn" title="Toggle rotation">
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-      <path d="M2 7.5a5.5 5.5 0 1 0 5.5-5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M7.5 2L5.5 4l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </button>
-
-  <button class="icon-btn" id="reset-btn" title="Reset camera">
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-      <rect x="2" y="2" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/>
-      <path d="M5 7.5h5M7.5 5v5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-    </svg>
-  </button>
 
 </div>
 
@@ -530,6 +582,7 @@ function setStudioColor(hex) {
 }
 
 // ── Apply model colour
+let reloadingForOriginal = false;
 async function applyModelColor(colorOrOriginal) {
   currentModelColor = colorOrOriginal;
   // Persist on current entry
@@ -540,7 +593,8 @@ async function applyModelColor(colorOrOriginal) {
   if (!model?.materials?.length) return;
 
   if (colorOrOriginal === 'original') {
-    // Re-set src to reload original materials
+    // Re-set src to reload original materials; flag prevents re-apply on load event
+    reloadingForOriginal = true;
     const src = mv.src;
     mv.src = '';
     await new Promise(r => setTimeout(r, 40));
@@ -784,7 +838,11 @@ mv.addEventListener('camera-change', () => {
 mv.addEventListener('load', async () => {
   await mv.updateComplete;
   mv.jumpCameraToGoal();
-  // Re-apply colour override after src swap
+  // Re-apply colour override after src swap, but NOT when we're reloading to restore originals
+  if (reloadingForOriginal) {
+    reloadingForOriginal = false;
+    return;
+  }
   if (currentModelColor !== 'original') applyModelColor(currentModelColor);
 });
 
