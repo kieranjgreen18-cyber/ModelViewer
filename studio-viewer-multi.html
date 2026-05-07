@@ -1007,11 +1007,317 @@ function switchTo(index) {
   renderSwitcher();
 }
 
-// ── Add model
-function addModel(src, name, isObjectUrl = false) {
-  if (modelList.some(m => m.src === src)) return;
-  modelList.push({ src, name, isObjectUrl, materialOverrides: {} });
-  switchTo(modelList.length - 1);
+// ══════════════════════════════════════════════════════════════
+// § GLB NORMAL FIXER — pre-processes binary before model-viewer
+//   sees it. Flips index winding on any primitive where the
+//   majority of triangles have normals pointing inward.
+// ══════════════════════════════════════════════════════════════
+
+// glTF component type → TypedArray constructor
+const COMPONENT_TYPES = {
+  5120: Int8Array,  5121: Uint8Array,
+  5122: Int16Array, 5123: Uint16Array,
+  5125: Uint32Array, 5126: Float32Array,
+};
+// accessor type → number of components
+const TYPE_SIZES = { SCALAR:1, VEC2:2, VEC3:3, VEC4:4, MAT2:4, MAT3:9, MAT4:16 };
+
+/**
+ * Build a typed accessor view from glTF JSON + binary buffer.
+ * Returns a flat TypedArray of (count × components) elements.
+ */
+function readAccessor(json, bin, accessorIndex) {
+  const acc  = json.accessors[accessorIndex];
+  const bv   = json.bufferViews[acc.bufferView];
+  const Ctor = COMPONENT_TYPES[acc.componentType];
+  const n    = TYPE_SIZES[acc.type];
+  const byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+  const byteStride = bv.byteStride;
+  const count = acc.count;
+
+  if (!byteStride || byteStride === Ctor.BYTES_PER_ELEMENT * n) {
+    // Packed — slice directly
+    return new Ctor(bin, byteOffset, count * n);
+  }
+
+  // Interleaved — copy out
+  const out = new Ctor(count * n);
+  const view = new DataView(bin);
+  for (let i = 0; i < count; i++) {
+    const base = byteOffset + i * byteStride;
+    for (let c = 0; c < n; c++) {
+      if (Ctor === Float32Array) {
+        out[i * n + c] = view.getFloat32(base + c * 4, true);
+      } else {
+        out[i * n + c] = view[`get${Ctor.name.replace('Array','')}`](
+          base + c * Ctor.BYTES_PER_ELEMENT, true
+        );
+      }
+    }
+  }
+  return out;
+}
+
+/** Cross product of two vec3s → result written into `out` */
+function cross(ax,ay,az, bx,by,bz, out) {
+  out[0] = ay*bz - az*by;
+  out[1] = az*bx - ax*bz;
+  out[2] = ax*by - ay*bx;
+}
+
+/** Dot product of two vec3s */
+function dot(ax,ay,az, bx,by,bz) { return ax*bx + ay*by + az*bz; }
+
+/**
+ * Flip winding order of a typed index array in-place.
+ * Swaps indices [1] and [2] of every triangle triple.
+ */
+function flipIndices(arr) {
+  for (let i = 0; i < arr.length; i += 3) {
+    const t = arr[i+1]; arr[i+1] = arr[i+2]; arr[i+2] = t;
+  }
+}
+
+/**
+ * Flip all VEC3 normals in-place (negate each component).
+ */
+function flipNormals(arr) {
+  for (let i = 0; i < arr.length; i++) arr[i] = -arr[i];
+}
+
+/**
+ * Main fix: takes a GLB ArrayBuffer, returns a (possibly modified)
+ * ArrayBuffer with corrected winding on any inside-out primitives.
+ *
+ * Strategy per primitive:
+ *   1. Read POSITION + INDICES (or synthesise 0,1,2,… if unindexed)
+ *   2. Read NORMAL if present
+ *   3. For up to 512 sampled triangles compute the geometric face normal
+ *      and dot it against the average stored vertex normal.
+ *   4. If >60% of sampled triangles are flipped → flip the index buffer
+ *      and negate stored normals so lighting is correct.
+ *   5. Rewrite only the modified buffer views back into the binary chunk.
+ */
+async function fixGlbNormals(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view  = new DataView(arrayBuffer);
+
+  // ── Validate GLB magic 0x46546C67
+  if (view.getUint32(0, true) !== 0x46546C67) return arrayBuffer;
+
+  const jsonChunkLen  = view.getUint32(12, true);
+  const jsonChunkType = view.getUint32(16, true);
+  if (jsonChunkType !== 0x4E4F534A) return arrayBuffer; // chunk 0 must be JSON
+
+  const jsonText = new TextDecoder().decode(bytes.slice(20, 20 + jsonChunkLen));
+  const json = JSON.parse(jsonText);
+
+  // ── Locate binary chunk (chunk 1)
+  const binChunkOffset = 20 + jsonChunkLen;
+  const binChunkStart  = (binChunkOffset + 3) & ~3; // 4-byte aligned
+  const binChunkLen    = view.getUint32(binChunkStart, true);
+  const binChunkType   = view.getUint32(binChunkStart + 4, true);
+  if (binChunkType !== 0x004E4942) return arrayBuffer; // no BIN chunk
+
+  // Mutable copy of the binary buffer — all fixes are written in-place here
+  const binStart = binChunkStart + 8;
+  const bin = arrayBuffer.slice(binStart, binStart + binChunkLen);
+
+  let anyFixed = false;
+  const tmp = new Float32Array(3);
+
+  // Track which material indices we've cleared doubleSided on, and which
+  // tangent accessors we've already flipped (shared accessors appear once).
+  const clearedDoubleSided  = new Set();
+  const flippedTangentAccs  = new Set();
+  const flippedNormalAccs   = new Set();
+
+  for (const mesh of (json.meshes || [])) {
+    for (const prim of (mesh.primitives || [])) {
+      if (prim.mode !== undefined && prim.mode !== 4) continue; // TRIANGLES only
+
+      const posIdx = prim.attributes?.POSITION;
+      if (posIdx === undefined) continue;
+
+      const positions = readAccessor(json, bin, posIdx);
+      const vertCount = json.accessors[posIdx].count;
+
+      // ── Build or read index array
+      let indices;
+      let indexAccessorIdx = prim.indices;
+      if (indexAccessorIdx !== undefined) {
+        indices = readAccessor(json, bin, indexAccessorIdx);
+      } else {
+        indices = new Uint32Array(vertCount);
+        for (let i = 0; i < vertCount; i++) indices[i] = i;
+        indexAccessorIdx = null;
+      }
+
+      const triCount = Math.floor(indices.length / 3);
+      if (triCount === 0) continue;
+
+      // ── Read normals
+      const normIdx = prim.attributes?.NORMAL;
+      let normals = null;
+      if (normIdx !== undefined) normals = readAccessor(json, bin, normIdx);
+
+      // ── Sample up to 512 triangles: geometric normal vs stored normal
+      const sampleStep = Math.max(1, Math.floor(triCount / 512));
+      let flippedCount = 0, testedCount = 0;
+
+      for (let t = 0; t < triCount; t += sampleStep) {
+        const i0 = indices[t*3], i1 = indices[t*3+1], i2 = indices[t*3+2];
+        if (i0 >= vertCount || i1 >= vertCount || i2 >= vertCount) continue;
+
+        const p0x=positions[i0*3],   p0y=positions[i0*3+1], p0z=positions[i0*3+2];
+        const p1x=positions[i1*3],   p1y=positions[i1*3+1], p1z=positions[i1*3+2];
+        const p2x=positions[i2*3],   p2y=positions[i2*3+1], p2z=positions[i2*3+2];
+
+        cross(p1x-p0x, p1y-p0y, p1z-p0z,
+              p2x-p0x, p2y-p0y, p2z-p0z, tmp);
+
+        if (normals) {
+          const snx = (normals[i0*3]   + normals[i1*3]   + normals[i2*3])   / 3;
+          const sny = (normals[i0*3+1] + normals[i1*3+1] + normals[i2*3+1]) / 3;
+          const snz = (normals[i0*3+2] + normals[i1*3+2] + normals[i2*3+2]) / 3;
+          if (dot(tmp[0],tmp[1],tmp[2], snx,sny,snz) < 0) flippedCount++;
+        } else {
+          testedCount = 0; break; // can't determine intent without stored normals
+        }
+        testedCount++;
+      }
+
+      if (testedCount === 0) continue;
+      if (flippedCount / testedCount <= 0.60) continue;
+
+      // ══════════════════════════════════════════
+      // This primitive is inside-out — fix it.
+      // ══════════════════════════════════════════
+      anyFixed = true;
+
+      // ── 1. Flip index winding (or vertex order for unindexed)
+      if (indexAccessorIdx !== null) {
+        const acc  = json.accessors[indexAccessorIdx];
+        const bv   = json.bufferViews[acc.bufferView];
+        const Ctor = COMPONENT_TYPES[acc.componentType];
+        const off  = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+        flipIndices(new Ctor(bin, off, acc.count));
+      } else {
+        // Unindexed: swap vertex 1 and 2 within each triangle for positions
+        const posAcc = json.accessors[posIdx];
+        const posBv  = json.bufferViews[posAcc.bufferView];
+        const off    = (posBv.byteOffset || 0) + (posAcc.byteOffset || 0);
+        const livePos = new Float32Array(bin, off, posAcc.count * 3);
+        for (let t = 0; t < triCount; t++) {
+          const b = t * 9;
+          for (let c = 0; c < 3; c++) {
+            const x = livePos[b+3+c]; livePos[b+3+c] = livePos[b+6+c]; livePos[b+6+c] = x;
+          }
+        }
+        // Also swap normals if unindexed
+        if (normals && normIdx !== undefined) {
+          const normAcc = json.accessors[normIdx];
+          const normBv  = json.bufferViews[normAcc.bufferView];
+          const nOff    = (normBv.byteOffset || 0) + (normAcc.byteOffset || 0);
+          const liveN   = new Float32Array(bin, nOff, normAcc.count * 3);
+          for (let t = 0; t < triCount; t++) {
+            const b = t * 9;
+            for (let c = 0; c < 3; c++) {
+              const x = liveN[b+3+c]; liveN[b+3+c] = liveN[b+6+c]; liveN[b+6+c] = x;
+            }
+          }
+        }
+      }
+
+      // ── 2. Negate stored normals (each normal points the wrong way)
+      //       Guard against shared accessor being flipped twice.
+      if (normals && normIdx !== undefined && !flippedNormalAccs.has(normIdx)) {
+        flippedNormalAccs.add(normIdx);
+        const normAcc = json.accessors[normIdx];
+        const normBv  = json.bufferViews[normAcc.bufferView];
+        const nOff    = (normBv.byteOffset || 0) + (normAcc.byteOffset || 0);
+        flipNormals(new Float32Array(bin, nOff, normAcc.count * 3));
+      }
+
+      // ── 3. Flip tangent W component (negating handedness).
+      //       TANGENT is VEC4; the W component encodes the bitangent sign.
+      //       Winding flip reverses handedness, so W must be negated.
+      //       Guard against shared accessor being flipped twice.
+      const tanIdx = prim.attributes?.TANGENT;
+      if (tanIdx !== undefined && !flippedTangentAccs.has(tanIdx)) {
+        flippedTangentAccs.add(tanIdx);
+        const tanAcc  = json.accessors[tanIdx];
+        const tanBv   = json.bufferViews[tanAcc.bufferView];
+        const tOff    = (tanBv.byteOffset || 0) + (tanAcc.byteOffset || 0);
+        const liveTan = new Float32Array(bin, tOff, tanAcc.count * 4);
+        // Negate every W (index 3 in each VEC4)
+        for (let i = 3; i < liveTan.length; i += 4) liveTan[i] = -liveTan[i];
+      }
+
+      // ── 4. Clear doubleSided on the referenced material.
+      //       doubleSided=true is often set as a workaround for flipped normals.
+      //       Now that winding is correct, leaving it true causes z-fighting in
+      //       AR (both faces rendered) and confuses Quick Look's validation.
+      if (prim.material !== undefined && !clearedDoubleSided.has(prim.material)) {
+        clearedDoubleSided.add(prim.material);
+        const mat = json.materials?.[prim.material];
+        if (mat && mat.doubleSided === true) {
+          mat.doubleSided = false;
+        }
+      }
+    }
+  }
+
+  if (!anyFixed) return arrayBuffer;
+
+  // ── Reassemble GLB.
+  // The JSON chunk may have changed (doubleSided edits), so reserialise it,
+  // pad to 4-byte boundary with spaces (0x20), and rebuild all three lengths.
+  const newJsonBytes  = new TextEncoder().encode(JSON.stringify(json));
+  const newJsonPadded = (newJsonBytes.length + 3) & ~3;
+  const jsonPad       = newJsonPadded - newJsonBytes.length; // 0–3 space bytes
+
+  const newBinPadded  = (binChunkLen + 3) & ~3;
+  const binPad        = newBinPadded - binChunkLen;
+
+  // Total = 12 (header) + 8 (json chunk header) + jsonPadded
+  //       + 8 (bin chunk header) + binPadded
+  const totalLen = 12 + 8 + newJsonPadded + 8 + newBinPadded;
+
+  const out     = new Uint8Array(totalLen);
+  const outView = new DataView(out.buffer);
+
+  // GLB header
+  outView.setUint32(0,  0x46546C67, true); // magic "glTF"
+  outView.setUint32(4,  2,          true); // version 2
+  outView.setUint32(8,  totalLen,   true); // total file length
+
+  // JSON chunk
+  outView.setUint32(12, newJsonPadded, true); // chunk length
+  outView.setUint32(16, 0x4E4F534A,   true); // chunk type "JSON"
+  out.set(newJsonBytes, 20);
+  // Pad with spaces (valid JSON chunk padding per spec)
+  for (let i = 0; i < jsonPad; i++) out[20 + newJsonBytes.length + i] = 0x20;
+
+  // BIN chunk
+  const binChunkHeaderOffset = 20 + newJsonPadded;
+  outView.setUint32(binChunkHeaderOffset,     newBinPadded, true);
+  outView.setUint32(binChunkHeaderOffset + 4, 0x004E4942,  true); // "BIN\0"
+  out.set(new Uint8Array(bin), binChunkHeaderOffset + 8);
+  // Pad BIN with zeroes
+  for (let i = 0; i < binPad; i++) out[binChunkHeaderOffset + 8 + binChunkLen + i] = 0x00;
+
+  return out.buffer;
+}
+
+// ── Add model (fetches + fixes normals before handing to model-viewer)
+async function addModel(src, name, isObjectUrl = false) {
+  if (modelList.some(m => m.originalSrc === src)) return;
+
+  // Push a placeholder entry immediately so the UI updates
+  const entry = { src, originalSrc: src, name, isObjectUrl, materialOverrides: {}, fixedUrl: null };
+  modelList.push(entry);
+  const entryIndex = modelList.length - 1;
 
   panel.classList.remove('hidden');
   emptyState.classList.add('hidden');
@@ -1020,12 +1326,33 @@ function addModel(src, name, isObjectUrl = false) {
     dragHint.classList.remove('hidden');
     setTimeout(() => { if (!hintDone) { hintDone = true; dragHint.classList.add('hidden'); } }, 4000);
   }
+
+  // Fetch and fix — then switch to the corrected src
+  try {
+    const resp = await fetch(src);
+    const buf  = await resp.arrayBuffer();
+    const fixed = await fixGlbNormals(buf);
+
+    // If normals were fixed a new buffer is returned (different reference)
+    if (fixed !== buf) {
+      const blob = new Blob([fixed], { type: 'model/gltf-binary' });
+      const fixedUrl = URL.createObjectURL(blob);
+      entry.fixedUrl = fixedUrl;
+      entry.src = fixedUrl;
+    }
+  } catch (e) {
+    // Network error or not a GLB — proceed with original src unchanged
+    console.warn('[NormalFix] Could not process', name, e);
+  }
+
+  switchTo(entryIndex);
 }
 
 // ── Remove model
 function removeModel(index) {
   const entry = modelList[index];
-  if (entry.isObjectUrl) URL.revokeObjectURL(entry.src);
+  if (entry.fixedUrl) URL.revokeObjectURL(entry.fixedUrl);
+  else if (entry.isObjectUrl) URL.revokeObjectURL(entry.originalSrc);
   modelList.splice(index, 1);
 
   if (modelList.length === 0) {
@@ -1098,12 +1425,38 @@ function renderSwitcher() {
 }
 
 // ── Load from File
-function loadFile(file) {
+async function loadFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (!['glb','gltf'].includes(ext)) return;
-  const url = URL.createObjectURL(file);
   const name = file.name.replace(/\.(glb|gltf)$/i, '');
-  addModel(url, name, true);
+
+  if (ext === 'glb') {
+    const buf   = await file.arrayBuffer();
+    const fixed = await fixGlbNormals(buf);
+    const blob  = new Blob([fixed], { type: 'model/gltf-binary' });
+    const url   = URL.createObjectURL(blob);
+
+    // Check de-dup against original file name to avoid double-load
+    if (modelList.some(m => m.name === name)) return;
+    const entry = { src: url, originalSrc: url, name, isObjectUrl: true, materialOverrides: {}, fixedUrl: (fixed !== buf ? url : null) };
+    modelList.push(entry);
+    panel.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+    if (!hintDone) {
+      dragHint.classList.remove('hidden');
+      setTimeout(() => { if (!hintDone) { hintDone = true; dragHint.classList.add('hidden'); } }, 4000);
+    }
+    switchTo(modelList.length - 1);
+  } else {
+    // gltf — just load directly (text-based, no binary patching)
+    const url = URL.createObjectURL(file);
+    if (modelList.some(m => m.originalSrc === url)) return;
+    const entry = { src: url, originalSrc: url, name, isObjectUrl: true, materialOverrides: {}, fixedUrl: null };
+    modelList.push(entry);
+    panel.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+    switchTo(modelList.length - 1);
+  }
 }
 
 // ── File input handlers
