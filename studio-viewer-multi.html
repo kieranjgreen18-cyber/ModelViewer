@@ -467,6 +467,85 @@ model-viewer::part(default-progress-bar) {
   .swatch-custom input[type="color"] { width: 16px; height: 16px; }
   .panel-divider { margin: 0 1px; }
 }
+
+/* ═══════════════════════════════════════════════════
+   § MATERIAL PAINT TRAY
+═══════════════════════════════════════════════════ */
+#paint-tray {
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--ui-border);
+  padding: 10px 12px 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+#paint-tray.open {
+  display: flex;
+}
+#paint-tray-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+#paint-reset-btn {
+  display: flex; align-items: center; gap: 4px;
+  border: none; background: transparent;
+  font-family: var(--f-meta); font-size: 9px; font-weight: 700;
+  letter-spacing: var(--ls-stencil); text-transform: uppercase;
+  color: var(--ui-muted); cursor: pointer;
+  padding: 3px 7px; border-radius: 5px;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+#paint-reset-btn:hover {
+  background: rgba(91,160,164,0.10);
+  color: var(--c-accent);
+}
+#paint-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#paint-empty {
+  font-family: var(--f-meta); font-size: 9px; font-weight: 700;
+  letter-spacing: var(--ls-stencil); text-transform: uppercase;
+  color: var(--ui-micro); text-align: center; padding: 8px 0;
+}
+.mat-slot {
+  display: flex; align-items: center; gap: 8px;
+}
+.mat-slot-label {
+  font-family: var(--f-meta); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.10em; text-transform: uppercase;
+  color: var(--ui-text); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mat-slot-swatch {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid var(--ui-border);
+  cursor: pointer; flex-shrink: 0;
+  overflow: hidden; position: relative;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.mat-slot-swatch:hover { transform: scale(1.15); border-color: var(--c-accent); }
+.mat-slot-swatch input[type="color"] {
+  opacity: 0; position: absolute;
+  inset: 0; width: 100%; height: 100%; cursor: pointer;
+}
+.mat-slot-reset {
+  width: 20px; height: 20px; border-radius: 5px; border: none;
+  background: transparent; color: var(--ui-micro);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.mat-slot-reset:hover { background: rgba(0,0,0,0.06); color: var(--ui-text); }
+
+/* Scrollbar styling for paint tray */
+#paint-tray::-webkit-scrollbar { width: 4px; }
+#paint-tray::-webkit-scrollbar-track { background: transparent; }
+#paint-tray::-webkit-scrollbar-thumb { background: var(--ui-border); border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -566,26 +645,14 @@ model-viewer::part(default-progress-bar) {
 
     <div class="panel-divider"></div>
 
-    <!-- Model colour -->
-    <span class="panel-label">Model</span>
-    <div class="swatch-row" id="model-swatches">
-      <div class="swatch active" data-model-color="original"
-           style="background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);"
-           title="Original materials"></div>
-      <div class="swatch" data-model-color="#e8e8e8" style="background:#e8e8e8;" title="Matte white"></div>
-      <div class="swatch" data-model-color="#c0c0c0"
-           style="background: linear-gradient(135deg,#d8d8d8,#a0a0a0);" title="Brushed silver"></div>
-      <div class="swatch" data-model-color="#1a1a1a" style="background:#1a1a1a;" title="Matte black"></div>
-      <div class="swatch" data-model-color="#1a3a5c" style="background:#1a3a5c;" title="Navy"></div>
-      <div class="swatch" data-model-color="#8B2020" style="background:#8B2020;" title="Carmine"></div>
-      <div class="swatch" data-model-color="#2d5a3d" style="background:#2d5a3d;" title="Forest"></div>
-      <div class="swatch-custom" title="Custom model colour">
-        <input type="color" id="model-color-custom" value="#e8e8e8">
-        <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-          <path d="M5 2v6M2 5h6" stroke="rgba(0,0,0,0.3)" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
-      </div>
-    </div>
+    <!-- Paint (per-material) button -->
+    <button class="icon-btn" id="paint-btn" title="Paint materials">
+      <svg width="14" height="14" viewBox="0 0 15 15" fill="none">
+        <path d="M3 11.5C3 10.67 3.67 10 4.5 10s1.5.67 1.5 1.5S4.5 13.5 4.5 13.5 3 12.33 3 11.5z" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M6 10L11.5 4.5a1.41 1.41 0 0 0-2-2L4 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9.5 3l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
 
     <div class="panel-divider"></div>
 
@@ -628,10 +695,40 @@ model-viewer::part(default-progress-bar) {
       </svg>
     </button>
 
-    <!-- Mobile line break — only visible via CSS on small screens -->
+    <div class="panel-divider"></div>
+
+    <!-- Light / Dark toggle -->
+    <button class="icon-btn" id="darkmode-btn" title="Toggle dark UI">
+      <svg id="darkmode-icon-moon" width="14" height="14" viewBox="0 0 15 15" fill="none">
+        <path d="M12.5 9A5.5 5.5 0 0 1 6 2.5a5.5 5.5 0 1 0 6.5 6.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      </svg>
+      <svg id="darkmode-icon-sun" width="14" height="14" viewBox="0 0 15 15" fill="none" style="display:none;">
+        <circle cx="7.5" cy="7.5" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M7.5 1v1.5M7.5 12.5V14M1 7.5h1.5M12.5 7.5H14M3.2 3.2l1 1M10.8 10.8l1 1M10.8 3.2l-1 1M3.2 10.8l1-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- Mobile line break -->
     <div class="mobile-break" style="display:none;" id="mobile-break"></div>
 
   </div>
+
+  <!-- Material paint tray — slides open above the controls row -->
+  <div id="paint-tray">
+    <div id="paint-tray-header">
+      <span class="panel-label" style="padding:0;">Materials</span>
+      <button id="paint-reset-btn" title="Restore all original materials">
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+          <path d="M2 6a4 4 0 1 0 4-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <path d="M6 2L4 4l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Reset all
+      </button>
+    </div>
+    <div id="paint-slots"></div>
+    <div id="paint-empty">Load a model to paint materials</div>
+  </div>
+
 </div>
 
 <input type="file" id="file-input" accept=".glb,.gltf" multiple>
@@ -652,13 +749,18 @@ const viewerWrap    = document.getElementById('viewer-wrap');
 const studioFloor   = document.getElementById('studio-floor');
 const switcherSection = document.getElementById('switcher-section');
 const mobileBreak   = document.getElementById('mobile-break');
+const paintTray     = document.getElementById('paint-tray');
+const paintSlots    = document.getElementById('paint-slots');
+const paintEmpty    = document.getElementById('paint-empty');
 
-let modelList         = [];
-let activeIndex       = -1;
-let autoRotating      = true;
-let currentModelColor = 'original';
-let hintDone          = false;
-let reloadingForOriginal = false;
+let modelList     = [];
+let activeIndex   = -1;
+let autoRotating  = true;
+let hintDone      = false;
+let isDarkUI      = false;
+
+// Per-model: stores { src, name, isObjectUrl, materialOverrides: {matIndex: hex|null} }
+// null means "use original"
 
 const HDRIS = {
   studio:   'https://modelviewer.dev/shared-assets/environments/neutral.hdr',
@@ -691,58 +793,204 @@ function hexToRgb01(hex) {
     1.0
   ];
 }
+function rgb01ToHex(arr) {
+  return '#' + arr.slice(0,3).map(v => {
+    const h = Math.round(v * 255).toString(16);
+    return h.length === 1 ? '0' + h : h;
+  }).join('');
+}
 
 // ── Studio background + UI token update
 function setStudioColor(hex) {
   viewerWrap.style.background = hex;
   document.body.style.background = hex;
-  const isDark = isColorDark(hex);
+  const dark = isColorDark(hex);
 
-  studioFloor.style.background = isDark
+  studioFloor.style.background = dark
     ? 'linear-gradient(to top, rgba(255,255,255,0.03) 0%, transparent 100%)'
     : 'linear-gradient(to top, rgba(0,0,0,0.035) 0%, transparent 100%)';
 
-  // Swap UI surface tokens
-  if (isDark) {
-    panel.classList.add('ui-dark');
-    badge.classList.add('ui-dark');
-  } else {
-    panel.classList.remove('ui-dark');
-    badge.classList.remove('ui-dark');
-  }
-
-  // Update swatch-custom plus icon colour to match
   document.querySelectorAll('.swatch-custom svg path').forEach(p => {
-    p.setAttribute('stroke', isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)');
+    p.setAttribute('stroke', dark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)');
   });
 }
 
-// ── Apply model material colour
-async function applyModelColor(colorOrOriginal) {
-  currentModelColor = colorOrOriginal;
-  if (activeIndex >= 0) modelList[activeIndex].color = colorOrOriginal;
+// ── Dark / light UI toggle (independent of studio background)
+function setDarkUI(dark) {
+  isDarkUI = dark;
+  [panel, badge].forEach(el => el.classList.toggle('ui-dark', dark));
+  const moonIcon = document.getElementById('darkmode-icon-moon');
+  const sunIcon  = document.getElementById('darkmode-icon-sun');
+  moonIcon.style.display = dark ? 'none' : '';
+  sunIcon.style.display  = dark ? ''     : 'none';
+  document.getElementById('darkmode-btn').classList.toggle('active', dark);
+}
 
-  await mv.updateComplete;
+// ── Store original material data per-material when model loads
+// originalMaterials[modelSrc][matIndex] = { baseColor, metallic, roughness }
+const originalMaterials = {};
+
+function captureOriginals(src) {
   const model = mv.model;
   if (!model?.materials?.length) return;
-
-  if (colorOrOriginal === 'original') {
-    reloadingForOriginal = true;
-    const src = mv.src;
-    mv.src = '';
-    await new Promise(r => setTimeout(r, 40));
-    mv.src = src;
-    return;
-  }
-
-  const rgba = hexToRgb01(colorOrOriginal);
-  const isMetal = colorOrOriginal === '#c0c0c0';
-  model.materials.forEach(mat => {
+  if (originalMaterials[src]) return; // already captured
+  const store = {};
+  model.materials.forEach((mat, i) => {
     const pbr = mat.pbrMetallicRoughness;
     if (!pbr) return;
-    pbr.setBaseColorFactor(rgba);
-    pbr.setMetallicFactor(isMetal ? 0.85 : 0.0);
-    pbr.setRoughnessFactor(isMetal ? 0.2 : colorOrOriginal === '#1a1a1a' ? 0.65 : 0.45);
+    const bc = pbr.baseColorFactor;
+    store[i] = {
+      baseColor: [...bc],
+      metallic:  pbr.metallicFactor,
+      roughness: pbr.roughnessFactor,
+    };
+  });
+  originalMaterials[src] = store;
+}
+
+// ── Apply a single material slot colour (or restore original)
+function applySlotColor(matIndex, hexOrNull) {
+  const model = mv.model;
+  if (!model?.materials) return;
+  const mat = model.materials[matIndex];
+  if (!mat) return;
+  const pbr = mat.pbrMetallicRoughness;
+  if (!pbr) return;
+
+  const src = modelList[activeIndex]?.src;
+
+  if (hexOrNull === null) {
+    // restore original
+    const orig = originalMaterials[src]?.[matIndex];
+    if (orig) {
+      pbr.setBaseColorFactor(orig.baseColor);
+      pbr.setMetallicFactor(orig.metallic);
+      pbr.setRoughnessFactor(orig.roughness);
+    }
+  } else {
+    pbr.setBaseColorFactor(hexToRgb01(hexOrNull));
+    pbr.setMetallicFactor(0.0);
+    pbr.setRoughnessFactor(0.45);
+  }
+
+  // Save override in model entry
+  if (activeIndex >= 0) {
+    modelList[activeIndex].materialOverrides[matIndex] = hexOrNull;
+  }
+}
+
+// ── Restore ALL materials on the current model to their originals
+function resetAllMaterials() {
+  const model = mv.model;
+  if (!model?.materials) return;
+  const src = modelList[activeIndex]?.src;
+  const store = originalMaterials[src];
+  if (!store) return;
+
+  model.materials.forEach((mat, i) => {
+    const pbr = mat.pbrMetallicRoughness;
+    if (!pbr) return;
+    const orig = store[i];
+    if (!orig) return;
+    pbr.setBaseColorFactor(orig.baseColor);
+    pbr.setMetallicFactor(orig.metallic);
+    pbr.setRoughnessFactor(orig.roughness);
+  });
+
+  if (activeIndex >= 0) {
+    modelList[activeIndex].materialOverrides = {};
+  }
+
+  // Refresh paint tray to show original swatches
+  renderPaintTray();
+}
+
+// ── Re-apply stored overrides after model (re)loads
+function reapplyOverrides() {
+  if (activeIndex < 0) return;
+  const overrides = modelList[activeIndex].materialOverrides;
+  Object.entries(overrides).forEach(([idx, hex]) => {
+    applySlotColor(Number(idx), hex);
+  });
+}
+
+// ── Render the per-material paint tray
+function renderPaintTray() {
+  paintSlots.innerHTML = '';
+  const model = mv.model;
+  if (!model?.materials?.length) {
+    paintEmpty.style.display = '';
+    return;
+  }
+  paintEmpty.style.display = 'none';
+
+  const src = modelList[activeIndex]?.src;
+  const overrides = modelList[activeIndex]?.materialOverrides || {};
+  const store = originalMaterials[src] || {};
+
+  model.materials.forEach((mat, i) => {
+    const pbr = mat.pbrMetallicRoughness;
+    const orig = store[i];
+    const override = overrides[i]; // hex string or undefined/null
+    const isOverridden = override != null;
+
+    // Current displayed color
+    let currentHex;
+    if (isOverridden) {
+      currentHex = override;
+    } else if (orig) {
+      currentHex = rgb01ToHex(orig.baseColor);
+    } else if (pbr) {
+      currentHex = rgb01ToHex([...pbr.baseColorFactor]);
+    } else {
+      currentHex = '#cccccc';
+    }
+
+    const row = document.createElement('div');
+    row.className = 'mat-slot';
+
+    const label = document.createElement('span');
+    label.className = 'mat-slot-label';
+    label.textContent = mat.name || `Material ${i + 1}`;
+    label.title = mat.name || `Material ${i + 1}`;
+
+    const swatchWrap = document.createElement('div');
+    swatchWrap.className = 'mat-slot-swatch';
+    swatchWrap.style.background = currentHex;
+    swatchWrap.title = 'Click to pick colour';
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = currentHex;
+    colorInput.addEventListener('input', e => {
+      const hex = e.target.value;
+      swatchWrap.style.background = hex;
+      applySlotColor(i, hex);
+    });
+    swatchWrap.appendChild(colorInput);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'mat-slot-reset';
+    resetBtn.title = 'Restore original';
+    resetBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6a4 4 0 1 0 4-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M6 2L4 4l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    resetBtn.style.opacity = isOverridden ? '1' : '0.3';
+    resetBtn.style.pointerEvents = isOverridden ? 'all' : 'none';
+    resetBtn.addEventListener('click', () => {
+      applySlotColor(i, null);
+      // Update swatch back to original
+      if (orig) {
+        const origHex = rgb01ToHex(orig.baseColor);
+        swatchWrap.style.background = origHex;
+        colorInput.value = origHex;
+      }
+      resetBtn.style.opacity = '0.3';
+      resetBtn.style.pointerEvents = 'none';
+    });
+
+    row.appendChild(label);
+    row.appendChild(swatchWrap);
+    row.appendChild(resetBtn);
+    paintSlots.appendChild(row);
   });
 }
 
@@ -756,24 +1004,13 @@ function switchTo(index) {
   badge.textContent = entry.name;
   badge.classList.remove('hidden');
 
-  // Restore colour state for this model
-  const col = entry.color || 'original';
-  currentModelColor = col;
-  document.querySelectorAll('#model-swatches .swatch').forEach(s => {
-    s.classList.toggle('active', s.dataset.modelColor === col);
-  });
-  const knownColors = ['original','#e8e8e8','#c0c0c0','#1a1a1a','#1a3a5c','#8B2020','#2d5a3d'];
-  if (!knownColors.includes(col)) {
-    document.querySelectorAll('#model-swatches .swatch').forEach(s => s.classList.remove('active'));
-  }
-
   renderSwitcher();
 }
 
 // ── Add model
 function addModel(src, name, isObjectUrl = false) {
   if (modelList.some(m => m.src === src)) return;
-  modelList.push({ src, name, isObjectUrl, color: 'original' });
+  modelList.push({ src, name, isObjectUrl, materialOverrides: {} });
   switchTo(modelList.length - 1);
 
   panel.classList.remove('hidden');
@@ -912,18 +1149,18 @@ document.getElementById('studio-color-custom').addEventListener('input', e => {
   setStudioColor(e.target.value);
 });
 
-// ── Model colour swatches
-document.querySelectorAll('#model-swatches .swatch').forEach(s => {
-  s.addEventListener('click', () => {
-    document.querySelectorAll('#model-swatches .swatch').forEach(x => x.classList.remove('active'));
-    s.classList.add('active');
-    applyModelColor(s.dataset.modelColor);
-  });
+// ── Dark/light UI toggle
+document.getElementById('darkmode-btn').addEventListener('click', () => setDarkUI(!isDarkUI));
+
+// ── Paint tray toggle
+document.getElementById('paint-btn').addEventListener('click', () => {
+  const isOpen = paintTray.classList.toggle('open');
+  document.getElementById('paint-btn').classList.toggle('active', isOpen);
+  if (isOpen) renderPaintTray();
 });
-document.getElementById('model-color-custom').addEventListener('input', e => {
-  document.querySelectorAll('#model-swatches .swatch').forEach(x => x.classList.remove('active'));
-  applyModelColor(e.target.value);
-});
+
+// ── Reset all materials button
+document.getElementById('paint-reset-btn').addEventListener('click', resetAllMaterials);
 
 // ── Lighting
 const LIGHT_IDS = { studio: 'light-studio', dramatic: 'light-dramatic', outdoor: 'light-outdoor' };
@@ -966,15 +1203,14 @@ mv.addEventListener('camera-change', () => {
   if (!hintDone && activeIndex >= 0) { hintDone = true; dragHint.classList.add('hidden'); }
 });
 
-// ── On model load: re-apply stored colour
+// ── On model load: capture originals, re-apply overrides, refresh paint tray
 mv.addEventListener('load', async () => {
   await mv.updateComplete;
   mv.jumpCameraToGoal();
-  if (reloadingForOriginal) {
-    reloadingForOriginal = false;
-    return;
-  }
-  if (currentModelColor !== 'original') applyModelColor(currentModelColor);
+  const src = modelList[activeIndex]?.src;
+  if (src) captureOriginals(src);
+  reapplyOverrides();
+  if (paintTray.classList.contains('open')) renderPaintTray();
 });
 
 // ── Init
